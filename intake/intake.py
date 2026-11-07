@@ -13,6 +13,7 @@ import subprocess
 import sys
 import os
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,6 +94,39 @@ def _clean(value: str, dropdown: bool = False) -> str:
     return "" if value == NO_RESPONSE or (dropdown and value == NO_SELECTION) else value
 
 
+# month names, English and Malay; any prefix of three letters or more counts (Apr, April, Sept, Ogos)
+_MONTH_NAMES = ("january february march april may june july august september october november december",
+                "januari februari mac april mei jun julai ogos september oktober november disember")
+MONTHS = {name[:n]: i + 1 for line in _MONTH_NAMES for i, name in enumerate(line.split()) for n in range(3, len(name) + 1)}
+
+
+def normalize_session(text: str) -> str:
+    """The month a hint names, as YYYY-MM, from the ways people write one: 2024/04, 2024.4, 202404, 2024-04-15,
+    04/2024, Apr 2024, 2024年4月 and so on. "" when it names no single month (Y2S1, 2024, 2024/25, last year): the
+    session is only a hint, so one the bot cannot read is left out and the sorter reads the session off the file."""
+    t = unicodedata.normalize("NFKC", text or "").strip().lower()
+    for pattern, y, m in ((r"(?<!\d)(20\d\d)\s*(?:[-/._ ]|年)?\s*(\d{1,2})(?!\d)", 1, 2),   # 2024-04, 2024/4, 202404, 2024年4月
+                          (r"(?<!\d)(\d{1,2})\s*[-/.]\s*(20\d\d)(?!\d)", 2, 1)):           # 04/2024, 4-2024
+        hit = re.search(pattern, t)
+        if hit and 1 <= int(hit.group(m)) <= 12:
+            return f"{hit.group(y)}-{int(hit.group(m)):02d}"
+    for pattern, y, m in ((r"(?<![a-z])([a-z]{3,9})\.?[\s,/-]*(20\d\d)(?!\d)", 2, 1),         # Apr 2024, Sept. 2025
+                          (r"(?<!\d)(20\d\d)[\s,/-]*([a-z]{3,9})(?![a-z])", 1, 2)):           # 2024 Apr
+        hit = re.search(pattern, t)
+        if hit and hit.group(m) in MONTHS:
+            return f"{hit.group(y)}-{MONTHS[hit.group(m)]:02d}"
+    return ""
+
+
+def normalize_code(text: str) -> str:
+    """The course code in what was typed (com 107, swe-404, "SWE404 Software Engineering", full-width letters), or ""
+    when there is none; like the session, the code is a hint, and one the bot cannot read is left out."""
+    t = unicodedata.normalize("NFKC", text or "").upper()
+    hit = re.search(r"(?<![A-Z])([A-Z]{1,4})[\s_-]*(\d{3,4}|\d\.\d)(?!\d)", t)
+    code = hit.group(1) + hit.group(2) if hit else ""
+    return code if CODE_RE.match(code) else ""
+
+
 def parse_form(body: str) -> Form:
     """Split the GitHub-rendered issue body on `### <title>` headings; unknown headings are ignored."""
     body = body.replace("\r\n", "\n")
@@ -104,10 +138,11 @@ def parse_form(body: str) -> Form:
     checklist = sections.get(FIELDS["checklist"], "")
     checked = [any(re.search(r"^\s*- \[[xX]\] " + re.escape(s) + r"\s*$", checklist, re.M) for s in (c, *OLD_CHECKS.get(i, ())))
                for i, c in enumerate(CHECKS)]
-    f = Form(prog=by_key["prog"], code=by_key["code"].upper(), name=by_key["name"], session=by_key["session"],
+    f = Form(prog=by_key["prog"], code=normalize_code(by_key["code"]), name=by_key["name"],
+             session=normalize_session(by_key["session"]),
              type=by_key["type"], links=attachment_links(sections.get(FIELDS["files"], "")),
              assessment=by_key["assessment"], lecturer=by_key["lecturer"], weighting=by_key["weighting"],
-             taken=by_key["taken"], credit=by_key["credit"], nickname=by_key["nickname"],
+             taken=normalize_session(by_key["taken"]), credit=by_key["credit"], nickname=by_key["nickname"],
              intake=by_key["intake"], notes=by_key["notes"], checked=checked)
     if not f.taken:
         f.taken = f.session
@@ -132,19 +167,11 @@ def _short(value: str) -> str:
 
 def validate(f: Form) -> list[str]:
     """Bilingual problem lines; empty when the form can be processed. Course code, name, session and type are
-    optional hints for the sorter: each is format-checked only when given (the session you took it likewise)."""
+    optional hints for the sorter and never send an upload back: parse_form tidies the code and sessions it can read
+    and leaves out the ones it cannot (issue #67)."""
     p: list[str] = []
     if f.prog not in PROGS:
         p.append(f"{FIELDS['prog']}：只能是 {' / '.join(PROGS)} | must be one of {' / '.join(PROGS)}")
-    if f.code and not CODE_RE.match(f.code):
-        p.append(f"{FIELDS['code']}：应像 COM107、EEE212、MPU3.1 这样，现在是「{_short(f.code)}」 "
-                 f"| should look like COM107, EEE212 or MPU3.1; got \"{_short(f.code)}\"")
-    if f.session and not SESSION_RE.match(f.session):
-        p.append(f"{FIELDS['session']}：格式是 YYYY-MM，如 2022-04，现在是「{_short(f.session)}」 "
-                 f"| must be YYYY-MM, e.g. 2022-04; got \"{_short(f.session)}\"")
-    if f.taken and f.taken != f.session and not SESSION_RE.match(f.taken):
-        p.append(f"{FIELDS['taken']}：格式是 YYYY-MM，如 2022-04，现在是「{_short(f.taken)}」 "
-                 f"| must be YYYY-MM, e.g. 2022-04; got \"{_short(f.taken)}\"")
     if f.type and f.type not in SUBS:
         p.append(f"{FIELDS['type']}：只能是 {' / '.join(SUBS)} 之一 | must be one of {' / '.join(SUBS)}")
     if not f.links:

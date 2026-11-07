@@ -472,21 +472,19 @@ def upload_page(site: Site) -> str:
     lects = "".join(f'<option value="{esc(n)}"></option>' for n in data["lecturers"])
     years = "".join(f'<option value="{y}">{y}</option>' for y in range(datetime.date.today().year + 1, 2017, -1))
     types = "".join(f'<option value="{t}">{t} · {esc(TYPE_LABELS[t])}</option>' for t in SUBS)
-    progs = "".join(f'<option value="{p}">{p} · {esc(PROGS[p].split(" | ")[0])}</option>' for p in PROGRAMMES)
     blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     content = (
         "<h1>上传资料 | Upload material</h1>"
-        "<p>只要选专业、拖文件，剩下的交给机器人。<br><small>Pick your programme and drop your files; the bot does the rest.</small></p>"
+        "<p>拖文件就行，剩下的交给机器人。<br><small>Just drop your files; the bot does the rest.</small></p>"
         '<ol class="rate-steps">'
-        "<li>选你的专业，点「下一步」。知道课程、老师、学期的话可以写在「给机器人的提示」里，不写也行。"
-        "<br><small>Pick your programme and press Next. If you know the course, lecturer or session, add them under Hints; you can also leave them out.</small></li>"
-        "<li>GitHub 表单会打开：把文件拖进「文件」框，勾选确认后提交（需要 GitHub 账号）。多份文件、zip、不同课程混在一起都行。"
-        "<br><small>The GitHub form opens: drag your files into the Files box, tick the checklist and submit (needs a GitHub account). "
+        "<li>点下面的按钮。知道课程、老师、学期的话可以先写在「给机器人的提示」里，怎么写都行；不写也行。"
+        "<br><small>Press the button below. If you know the course, lecturer or session, you can add them under Hints first, in any format; you can also leave them out.</small></li>"
+        "<li>GitHub 表单会打开：选你的专业，把文件拖进「文件」框，勾选确认后提交（需要 GitHub 账号）。多份文件、zip、不同课程混在一起都行。"
+        "<br><small>The GitHub form opens: pick your programme, drag your files into the Files box, tick the checklist and submit (needs a GitHub account). "
         "Several files, zips and mixed courses are all fine.</small></li>"
         "<li>几分钟内机器人回复一个整理好的 PR，维护者审核合并后网站更新。"
         "<br><small>Within minutes the bot replies with a pull request; once a maintainer merges it, the site updates.</small></li></ol>"
         f'<form id="up-form" class="up-form" data-form="{UPLOAD_URL}" novalidate>'
-        f'<label for="up-prog">你的专业 | Your programme</label><select id="up-prog">{progs}</select>'
         '<details class="up-hints"><summary>给机器人的提示（选填）<small>Hints for the bot (optional)</small></summary>'
         '<label for="up-code">课程代码 | Course code</label>'
         '<input id="up-code" list="up-codes" autocomplete="off" placeholder="例如 COM107、MPU1.1、G0191 | e.g. COM107">'
@@ -502,12 +500,12 @@ def upload_page(site: Site) -> str:
         '<select id="up-term" aria-label="学期 | Term"><option value="">学期 | Term</option>'
         '<option value="02">02</option><option value="04">04</option><option value="09">09</option>'
         '<option value="other">其他 | Other</option></select>'
-        '<input id="up-other" hidden placeholder="YYYY-MM" aria-label="其他学期 | Other session"></div>'
+        '<input id="up-other" hidden placeholder="例如 2024/04、Apr 2024 | e.g. 2024/04, Apr 2024" aria-label="其他学期 | Other session"></div>'
         f'<label for="up-type">资料类型 | Type</label><select id="up-type"><option value="">不确定 | Not sure</option>{types}</select>'
         '<div id="up-assess-row" hidden><label for="up-assess">考核名称 | Assessment</label>'
         '<input id="up-assess" placeholder="Final、Midterm、Test 1…"></div></details>'
         '<p id="up-error" class="error" role="alert"></p>'
-        '<p><button type="submit" class="btn big">下一步：到 GitHub 拖文件 | Next: drop your files on GitHub</button></p></form>'
+        '<p><button type="submit" class="btn big">去 GitHub 上传 | Upload on GitHub</button></p></form>'
         f'<script type="application/json" id="up-data">{blob}</script>'
         "<h2>机器人会做什么 | What the bot does</h2><ul>"
         "<li>逐个分拣：认出每个文件是哪门课、哪个学期、什么类型，按规则改名、放好、登记。"
@@ -527,7 +525,7 @@ def upload_page(site: Site) -> str:
         "or email it to us instead.</p>"
         '<p class="muted">没有 GitHub 账号，或者不想公开原文件？发邮件到 <code>xieqiyi@ieee.org</code>，我们帮你处理后上传并署名。'
         '<br>No GitHub account, or rather not make the original public? Email <code>xieqiyi@ieee.org</code>: we clean it up, upload it and credit you.</p>')
-    return page(site, "上传资料 | Upload material", content, "上传试卷、大纲、笔记：选专业、拖文件，机器人用 AI 分拣、打码、查重 | upload material")
+    return page(site, "上传资料 | Upload material", content, "上传试卷、大纲、笔记：拖文件就行，机器人用 AI 分拣、打码、查重 | upload material")
 
 
 def prog_cards(site: Site) -> str:
@@ -946,8 +944,8 @@ def root_page(site: Site, md: str) -> str:
     else:
         body = render_md(site, text, md)
     if md == "CONTRIBUTING.md":
-        body = (f'<p class="notice">最简单的方式：在<a href="{site.prefix}upload/">上传页</a>选好专业，把文件拖到 GitHub。机器人用 AI 分拣、改名、打码、查重，开一个 PR 等维护者审核。<br>'
-                f'Easiest way: pick your programme on the <a href="{site.prefix}upload/">upload page</a> and drop your files on GitHub. '
+        body = (f'<p class="notice">最简单的方式：从<a href="{site.prefix}upload/">上传页</a>去 GitHub，选专业、拖文件。机器人用 AI 分拣、改名、打码、查重，开一个 PR 等维护者审核。<br>'
+                f'Easiest way: go from the <a href="{site.prefix}upload/">upload page</a> to GitHub, pick your programme and drop your files. '
                 'The bot sorts, renames, redacts and de-duplicates them with AI and opens a PR for review.</p>') + body
     return page(site, m.group(1).strip() if m else md, body)
 

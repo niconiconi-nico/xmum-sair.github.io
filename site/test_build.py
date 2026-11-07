@@ -293,7 +293,7 @@ function el(id, value) {
 }
 const vals = JSON.parse(process.argv[3]);
 for (const id of ['up-form', 'up-code', 'up-name', 'up-name-row', 'up-course-note', 'up-lect', 'up-lects', 'up-year', 'up-term',
-                  'up-other', 'up-type', 'up-assess', 'up-assess-row', 'up-error', 'up-prog']) el(id, vals[id]);
+                  'up-other', 'up-type', 'up-assess', 'up-assess-row', 'up-error']) el(id, vals[id]);
 el('up-data').textContent = JSON.stringify({ courses: {}, lecturers: [] });
 els['up-form'].dataset.form = 'https://github.com/o/r/issues/new?template=upload.yml';
 global.document = { documentElement: el('html'), body: { dataset: {} }, querySelectorAll: () => [], querySelector: () => null,
@@ -321,26 +321,28 @@ def _submit_upload_helper(**values):
     return out["href"], out["error"]
 
 
-def test_upload_helper_needs_only_the_programme():
-    """Spec §4: course code, name, session and type are optional hints. The helper asks only for the programme, leaves
-    empty hints out of the prefilled form, and still catches a hint given in the wrong shape."""
+def test_upload_helper_needs_nothing_and_passes_hints_through():
+    """Spec §4: every hint is optional and the GitHub form itself asks for the programme, so the helper asks for nothing.
+    Empty hints are left out of the prefilled form; a hint in an odd shape goes through for the bot to tidy (issue #67)."""
     from urllib.parse import parse_qs, urlsplit
-    out = _submit_upload_helper(**{"up-prog": "AIT"})
+    out = _submit_upload_helper()
     if out is None:
         print("node not found: upload helper behaviour not checked")
         return
     href, error = out
     q = parse_qs(urlsplit(href).query)
-    assert error == "" and q["template"] == ["upload.yml"] and q["prog"] == ["AIT"], (href, error)
+    assert error == "" and q["template"] == ["upload.yml"] and "prog" not in q, (href, error)
     assert not {"code", "name", "session", "type", "lecturer", "assessment"} & set(q) and q["title"] == ["[上传 | Upload]"]
-    href, error = _submit_upload_helper(**{"up-prog": "EEE", "up-code": "com107", "up-name": "Circuits", "up-year": "2022",
+    href, error = _submit_upload_helper(**{"up-code": "com107", "up-name": "Circuits", "up-year": "2022",
                                            "up-term": "04", "up-type": "Past-Papers", "up-assess": "Final"})
     q = parse_qs(urlsplit(href).query)
     assert (q["code"], q["name"], q["session"], q["type"], q["assessment"]) == (["COM107"], ["Circuits"], ["2022-04"], ["Past-Papers"], ["Final"])
-    assert q["title"] == ["[上传 | Upload] COM107 2022-04 Past-Papers"]
-    for bad in ({"up-code": "TBD_1"}, {"up-term": "other", "up-other": "April"}, {"up-year": "2022"}):
-        href, error = _submit_upload_helper(**{"up-prog": "EEE", **bad})
-        assert href == "" and " | " in error, (bad, error)
+    assert q["title"] == ["[上传 | Upload] COM107 2022-04 Past-Papers"] and "prog" not in q
+    href, error = _submit_upload_helper(**{"up-code": "swe 404", "up-term": "other", "up-other": "2024/04"})
+    q = parse_qs(urlsplit(href).query)
+    assert error == "" and q["code"] == ["SWE404"] and q["session"] == ["2024/04"], (href, error)     # the bot tidies it
+    href, error = _submit_upload_helper(**{"up-year": "2022"})          # a year without a term names no month: left out
+    assert error == "" and "session" not in parse_qs(urlsplit(href).query), (href, error)
 
 
 def test_upload_page_suggests_courses_and_lecturers():
@@ -354,7 +356,7 @@ def test_upload_page_suggests_courses_and_lecturers():
     data = json.loads(re.search(r'<script type="application/json" id="up-data">(.*?)</script>', up, flags=re.S).group(1))
     assert data["courses"]["COM106"]["lecturers"] == ["Wong Shen Yuong"] and data["courses"]["G0191"]["prog"] == "GE"
     assert "Wong Shen Yuong" in data["lecturers"]
-    assert up.index('id="up-prog"') < up.index('<details class="up-hints">') < up.index('id="up-code"')   # only the programme up front
+    assert 'id="up-prog"' not in up and up.index('<details class="up-hints">') < up.index('id="up-code"')   # nothing to fill up front
     assert "逐个分拣" in up and "Sorts each file" in up and "自动涂黑" in up and "Blacks out" in up    # what the bot does
     assert "任何人都能下载" in up and "anyone can download" in up        # what it cannot do: attachments are public
     js = (out / "static/site.js").read_text(encoding="utf-8")

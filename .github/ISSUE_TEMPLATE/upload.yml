@@ -75,7 +75,7 @@ body:
     attributes:
       label: "学期 | Session"
       description: "选填，给机器人的提示 | optional, a hint for the bot"
-      placeholder: "YYYY-MM，如 2022-04 | e.g. 2022-04"
+      placeholder: "怎么写都行，如 2022-04、2022/4、Apr 2022 | any format, e.g. 2022-04, 2022/4, Apr 2022"
     validations:
       required: false
 
@@ -129,7 +129,7 @@ body:
     id: taken
     attributes:
       label: "你修这门课的学期 | Session you took it"
-      description: "YYYY-MM；留空表示和资料学期相同。用于专业页的「修课时间表」 | YYYY-MM; blank means the same as the material's session. Feeds the programme's course timeline"
+      description: "怎么写都行（2022-04、2022/4、Apr 2022）；留空表示和资料学期相同。用于专业页的「修课时间表」 | Any format (2022-04, 2022/4, Apr 2022); blank means the same as the material's session. Feeds the programme's course timeline"
       placeholder: "2022-04"
 
   - type: dropdown

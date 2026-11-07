@@ -90,12 +90,31 @@ def test_parse_form_fields():
     assert intake.validate(f) == []
 
 
-def test_validate_reports_each_problem_bilingually():
-    f = intake.parse_form(_body(**{"com107": "TBD_1", "2022-04": "2022-4"}))
-    problems = intake.validate(f)
-    assert any("Course code" in p and "课程代码" in p for p in problems)
-    assert any("Session" in p and "学期" in p for p in problems)
-    assert len(problems) == 2, problems
+def test_normalize_session_reads_common_ways_of_writing_a_month():
+    for raw in ("2024-04", "2024-4", "2024/04", "2024/4", "2024.04", "2024 04", "202404", "2024_04", "2024-04-15",
+                "04/2024", "4-2024", "Apr 2024", "april 2024", "2024 Apr", "APR-2024", "Apr. 2024", "2024年4月", "2024年04月",
+                "２０２４／０４", " 2024 / 04 "):
+        assert intake.normalize_session(raw) == "2024-04", raw
+    assert intake.normalize_session("Sept 2025") == intake.normalize_session("September, 2025") == "2025-09"
+    assert intake.normalize_session("Feb 2023") == "2023-02" and intake.normalize_session("Ogos 2023") == "2023-08"
+    for raw in ("", "Y2S1", "last year", "2024", "2024/25", "2023/2024", "2024-13", "13/2024", "unknown", "不知道", "sem 2 2024"):
+        assert intake.normalize_session(raw) == "", raw
+
+
+def test_normalize_code_finds_the_course_code_in_what_was_typed():
+    for raw, code in (("COM107", "COM107"), ("com 107", "COM107"), ("swe-404", "SWE404"), ("SWE404 Software Engineering", "SWE404"),
+                      ("MPU3.1", "MPU3.1"), ("ｃｏｍ１０７", "COM107"), ("G0191", "G0191")):
+        assert intake.normalize_code(raw) == code, raw
+    for raw in ("", "TBD_1", "software engineering", "不知道"):
+        assert intake.normalize_code(raw) == "", raw
+
+
+def test_hints_are_tidied_or_ignored_never_sent_back():
+    # issue #67: "2024/04" for the session you took it sent the upload back; hints are only hints, so none blocks
+    f = intake.parse_form(_body(**{"com107": "swe 404", "2022-04": "2024/04"}))
+    assert (f.code, f.session, f.taken) == ("SWE404", "2024-04", "2024-04") and intake.validate(f) == []
+    g = intake.parse_form(_body(**{"com107": "TBD_1", "2022-04": "Y2S1"}))
+    assert (g.code, g.session, g.taken) == ("", "", "") and intake.validate(g) == []
 
 
 def test_personal_data_box_says_attachments_are_public_and_old_wording_still_counts():
@@ -123,9 +142,9 @@ def test_form_course_fields_are_optional():
     g = intake.parse_form(_body().replace("com107", "_No response_").replace("Circuits and Devices", "_No response_")
                           .replace("Past-Papers", "_No response_").replace("2022-04", "_No response_"))
     assert intake.validate(g) == [] and (g.code, g.name, g.session, g.type, g.taken) == ("", "", "", "", "")
-    bad = intake.parse_form(_body().replace("2022-04", "_No response_").replace(
+    vague = intake.parse_form(_body().replace("2022-04", "_No response_").replace(
         "### 你修这门课的学期 | Session you took it\n\n_No response_", "### 你修这门课的学期 | Session you took it\n\nlast year"))
-    assert len(intake.validate(bad)) == 1 and "Session you took it" in intake.validate(bad)[0]   # still format-checked when given
+    assert intake.validate(vague) == [] and vague.taken == ""     # a hint the bot cannot read is left out, not sent back
 
 
 def test_unselected_optional_dropdowns_count_as_empty():
@@ -396,11 +415,11 @@ def test_the_fixture_form_is_valid():
 def test_dry_run_validation_failure_writes_problems():
     import subprocess, sys
     tmp = _repo_copy(); w = pathlib.Path(tempfile.mkdtemp())
-    form = w / "form.md"; form.write_text(_body().replace("2022-04", "April 2022"), encoding="utf-8")
+    form = w / "form.md"; form.write_text(_body().replace("- [x] " + intake.CHECKS[0], "- [ ] " + intake.CHECKS[0]), encoding="utf-8")
     r = subprocess.run([sys.executable, str(ROOT / "intake/intake.py"), "--dry-run", "--form", str(form), "--repo", str(tmp), "--work", str(w / "work")],
                        capture_output=True, text=True, encoding="utf-8")
     assert r.returncode == 0, r.stderr
-    assert "Session" in (w / "work/PROBLEMS.md").read_text(encoding="utf-8") and not (w / "work/PR_BODY.md").exists()
+    assert "Unticked" in (w / "work/PROBLEMS.md").read_text(encoding="utf-8") and not (w / "work/PR_BODY.md").exists()
 
 
 def test_issue_form_matches_parser():
@@ -422,8 +441,9 @@ def test_validate_accepts_general_education_codes():
     for code in ("MPU3.1", "MPU1.1", "G0191", "GE0227", "EEE999", "com107"):
         f = intake.parse_form(_body(com107=code))
         assert intake.validate(f) == [], (code, intake.validate(f))
-    for code in ("MP.1", "COM1", "MPU3.1.2", "1234"):
-        assert any("Course code" in p for p in intake.validate(intake.parse_form(_body(com107=code)))), code
+    for code in ("MP.1", "COM1", "MPU3.1.2", "1234"):         # a code the bot cannot read is left out, never sent back
+        f = intake.parse_form(_body(com107=code))
+        assert intake.validate(f) == [] and f.code in ("", "MPU3.1"), (code, f.code)
 
 
 def test_cell_neutralizes_html_and_course_name_too():
@@ -1666,10 +1686,11 @@ def test_run_issue_glue_with_fakes():
         n_ai, n_comments = len(gh.ai_calls), [c[0] for c in gh.calls].count("comment")
         intake.run_issue(5, _repo_copy(), gh, FakeGit(), "https://run", w / "work2", asks=asks, budget=FakeBudget())
         assert len(gh.ai_calls) == n_ai and [c[0] for c in gh.calls].count("comment") == n_comments   # a rebuild: quiet, free
-        gh2 = FakeGH(_body().replace("2022-04", "soon")); git2 = FakeGit()                    # invalid form
+        unticked = _body().replace("- [x] " + intake.CHECKS[0], "- [ ] " + intake.CHECKS[0])
+        gh2 = FakeGH(unticked); git2 = FakeGit()                                               # invalid form
         intake.run_issue(6, tmp, gh2, git2, None, w / "work", asks={})
-        assert git2.calls == [] and [c[0] for c in gh2.calls] == ["comment", "label"] and "Session" in gh2.calls[0][1]
-        gh3 = FakeGH(_body().replace("2022-04", "soon"), labels=("upload", "needs-info"))        # sweep: already told, stay quiet
+        assert git2.calls == [] and [c[0] for c in gh2.calls] == ["comment", "label"] and "Unticked" in gh2.calls[0][1]
+        gh3 = FakeGH(unticked, labels=("upload", "needs-info"))        # sweep: already told, stay quiet
         intake.run_issue(6, tmp, gh3, FakeGit(), None, w / "work", sweep=True, asks={})
         assert gh3.calls == []
     finally:
