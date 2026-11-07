@@ -1,9 +1,9 @@
 """Black out personal data in a PDF (spec §5 steps 3–4): the full check's redactions become PyMuPDF redaction
 annotations, applied so that the text, image pixels and any line art they touch are removed, not just covered. Every
 annotation and form field on a redacted page goes first (a field's value would survive under the black box), and the
-outline and page labels go from the whole file. Every page is read again afterwards: every blacked-out string, and every
-word the word fallback blacked out, must be gone. Problems name pages or redaction numbers, never the text; the
-rectangles kept for the cache hold no text.
+outline and page labels go from the whole file. A text redaction's exact repeats on the other pages are blacked out too.
+Every page is read again afterwards: every blacked-out string, and every word the word fallback blacked out, must be
+gone. Problems name pages or redaction numbers, never the text; the rectangles kept for the cache hold no text.
 
 scrub_pdf is what EVERY committed PDF goes through, redacted or not (intake.clear_metadata): the places a name ends up
 without being drawn on the page (annotation authors, subjects, contents and rich text, pop-ups, file attachments,
@@ -19,6 +19,7 @@ from pathlib import Path
 
 WIDEN = 0.02        # each side of a box grows by this share of the displayed page's width / height
 MIN_WORD = 3        # the word fallback searches the words of at least this many characters
+MIN_REPEAT = 6      # repeats on other pages are blacked out only for strings this long, spaces not counted
 BLACK = (0, 0, 0)
 DOC_KEYS = ("PieceInfo", "AF")                      # removed from the catalog of every committed PDF
 PAGE_KEYS = ("PieceInfo", "Metadata", "Thumb", "AF")  # removed from every page of every committed PDF
@@ -28,6 +29,7 @@ ANNOT_SUBTYPES = {"Text", "Link", "FreeText", "Line", "Square", "Circle", "Polyg
                   "Screen", "PrinterMark", "TrapNet", "Watermark", "3D", "Redact", "Projection", "RichMedia"}
 _REF = re.compile(r"(\d+)\s+\d+\s+R")
 _EDGE = re.compile(r"^\W+|\W+$")
+_PLAIN = re.compile(r"[A-Za-z\s]+")
 _HYPHEN_BREAK = re.compile(r"-[ \t]*\n\s*")
 
 LIST_BAD = "打码列表格式不对 | the redaction list is malformed"
@@ -70,6 +72,30 @@ def _words(s: str) -> list[str]:
 
 def _long_words(s: str) -> list[str]:
     return list(dict.fromkeys(w for w in _words(s) if len(w) >= MIN_WORD))
+
+
+def _plain(s: str) -> bool:
+    """Only Latin letters and whitespace: a name, or a key made of words. On a page other than its own such a string
+    keeps its spacing: a key "BlueSky" is not the phrase "blue sky" in the ordinary text of every other page."""
+    return bool(_PLAIN.fullmatch(s))
+
+
+def _repeats(page, needle: str) -> list:
+    """Rects where `needle` appears on a page other than the one it was named on; none for a string shorter than
+    MIN_REPEAT (spaces not counted): a short one there is as likely a coincidence, so the check leaves it to a person.
+    A _plain string: every run of page words equal to its words, ignoring case and edge punctuation, never part of a
+    longer word ("Hassan" is not in "Hassanah"). Anything else (an ID, an email): every hit of MuPDF's search, so
+    "ID:EEE2109300" counts."""
+    import fitz
+    if len(_squash(needle)) < MIN_REPEAT:
+        return []
+    if not _plain(needle):
+        return page.search_for(needle)
+    want = [w.casefold() for w in _words(needle)]
+    words = page.get_text("words")
+    have = [_EDGE.sub("", x[4]).casefold() for x in words]
+    n = len(want)
+    return [fitz.Rect(x[:4]) for i in range(len(have) - n + 1) if have[i:i + n] == want for x in words[i:i + n]]
 
 
 def _num(v) -> bool:
@@ -123,24 +149,32 @@ def _readable(page) -> list[str]:
 
 
 def _left(doc, redactions: list[dict], fallback_words=()) -> list[int]:
-    """1-based pages of `doc` on which a text redaction's string can still be read anywhere, compared with all
-    whitespace removed on both sides (so a string broken over lines or spaced out counts, and again with hyphenated
-    line breaks joined) and ignoring case; or one of `fallback_words` (the words the word fallback blacked out, in any
-    case, as it does) as a whole word: equal to a page word (get_text("words")) or an annotation or field word, edge
-    punctuation trimmed, ignoring case ("important" is not "tan"). Single words of strings found whole are not
-    checked: a lecturer "Dr Tan" must not fail a student "Tan Ah Kow"."""
-    texts = [r["text"] for r in redactions if r.get("kind") == "text"]
-    strings = [s for s in (_squash(t).casefold() for t in texts) if s]
+    """1-based pages of `doc` on which a text redaction's string can still be read anywhere, ignoring case, compared
+    with all whitespace removed on both sides (so a string broken over lines or spaced out counts, and again with
+    hyphenated line breaks joined). On a page other than the one it was named on, a _plain string is compared with
+    whitespace collapsed instead, so it must keep its spacing there ("Tan Ah\\nKow" still counts, "Blue Sky" is not
+    "BlueSky"); a string with digits or symbols is compared without whitespace on every page. Also one of
+    `fallback_words` (the words the word fallback blacked out, in any case, as it does) as a whole word: equal to a page
+    word (get_text("words")) or an annotation or field word, edge punctuation trimmed, ignoring case ("important" is
+    not "tan"). Single words of strings found whole are not checked: a lecturer "Dr Tan" must not fail a student
+    "Tan Ah Kow"."""
+    targets = [(r["page"], _plain(r["text"]), _squash(r["text"]).casefold(), _norm(r["text"]).casefold())
+               for r in redactions if r.get("kind") == "text" and _squash(r["text"])]
     words = {w.casefold() for x in fallback_words for w in _words(x)}
     pages = []
     for i, page in enumerate(doc, 1):
         found = _readable(page)
-        hay = [_squash(t).casefold() for t in found] + [_squash(_HYPHEN_BREAK.sub("", t)).casefold() for t in found]
+        hay = found + [_HYPHEN_BREAK.sub(j, t) for t in found for j in ("", " ")]
+        squashed = [_squash(t).casefold() for t in hay]
+        spaced = [_norm(t).casefold() for t in hay]
+        keep_spacing = [sp for p, plain, _, sp in targets if plain and p != i]
+        no_spacing = [sq for p, plain, sq, _ in targets if not (plain and p != i)]
         on_page = set()
         if words:
             on_page = {_EDGE.sub("", x[4]).casefold() for x in page.get_text("words")}
             on_page |= {w.casefold() for t in found[1:] for w in _words(t)}
-        if any(s in h for s in strings for h in hay) or words & on_page:
+        if any(s in h for s in no_spacing for h in squashed) or any(s in h for s in keep_spacing for h in spaced) \
+                or words & on_page:
             pages.append(i)
     return pages
 
@@ -180,7 +214,8 @@ def _plan(doc, redactions):
     """(marks [(page, Rect)], box pages, words the fallback used, problems) for the check's redactions. Text: every
     hit of the whitespace-normalised string on its page (MuPDF's search ignores case and follows a string over line
     breaks); when there is none, every page word equal (ignoring case and edge punctuation) to one of its words of
-    MIN_WORD+ characters, and the target fails when it has no such word or one is not on the page. Boxes: see
+    MIN_WORD+ characters, and the target fails when it has no such word or one is not on the page. Then its exact
+    repeats on every other page (_repeats; the fallback's single words are never looked for there). Boxes: see
     _box_rect."""
     import fitz
     marks, boxes, used, problems = [], set(), [], []
@@ -201,6 +236,7 @@ def _plan(doc, redactions):
             if not words or not all(found):
                 problems.append(NOT_FOUND.format(p=r["page"]))
         marks += [(r["page"], h) for h in hits]
+        marks += [(i, h) for i, other in enumerate(doc, 1) if i != r["page"] for h in _repeats(other, needle)]
     return marks, sorted(boxes), list(dict.fromkeys(used)), problems
 
 

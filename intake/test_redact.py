@@ -118,14 +118,14 @@ def test_malformed_redactions_fail_closed_and_write_nothing():
         assert not r.ok and r.out is None and not out.exists() and r.problems and "EEE2109300" not in " ".join(r.problems)
 
 
-def test_a_string_repeated_on_another_page_fails_the_whole_document():
-    p = pdf_pages(["ID: EEE2109300", "Question 1", "Footer EEE2109300"]); out = tmp() / "o.pdf"
-    r = redact.apply(p, out, [_text(1, "EEE2109300")])              # the AI named page 1 only
-    assert not r.ok and "EEE2109300" not in text(out, 1) and "EEE2109300" in text(out, 3)
+def test_a_spaced_out_repeat_on_another_page_fails_the_whole_document():
+    p = pdf_pages(["ID: EEE2109300", "Question 1", "Footer EEE 2109300"]); out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(1, "EEE2109300")])              # the AI named page 1 only; search misses page 3
+    assert not r.ok and "EEE2109300" not in text(out, 1) and "EEE 2109300" in text(out, 3)
     assert any("page 3" in x for x in r.problems) and not any("page 1 " in x for x in r.problems)
     assert "EEE2109300" not in " ".join(r.problems)
     assert not redact.text_gone(out, [_text(1, "EEE2109300")])
-    both = redact.apply(p, tmp() / "o2.pdf", [_text(1, "EEE2109300"), _text(3, "EEE2109300")])
+    both = redact.apply(p, tmp() / "o2.pdf", [_text(1, "EEE2109300"), _text(3, "EEE 2109300")])
     assert both.ok and redact.text_gone(both.out, [_text(1, "EEE2109300")])
 
 
@@ -253,7 +253,7 @@ def test_malformed_cached_rects_fail_closed():
 def test_the_original_is_never_written():
     p = pdf_pages(["Name: Tan Ah Kow   ID: EEE2109300", "Footer EEE2109300"]); before = p.read_bytes()
     redact.apply(p, tmp() / "a.pdf", [_text(1, "EEE2109300"), _text(2, "EEE2109300")])
-    redact.apply(p, tmp() / "b.pdf", [_text(1, "EEE2109300")])                           # fails: page 2
+    redact.apply(p, tmp() / "b.pdf", [_text(1, "EEE2109300")])                           # page 2's copy found too
     redact.apply(p, tmp() / "c.pdf", [_text(9, "EEE2109300")])                           # malformed
     r = redact.apply(p, p, [_text(1, "EEE2109300"), _text(2, "EEE2109300")])             # out is the original
     assert not r.ok and r.out is None and p.read_bytes() == before
@@ -434,8 +434,10 @@ def test_a_note_or_an_author_on_another_page_is_emptied():
             assert len(list(o[1].annots())) >= 1                                  # the annotation itself stays
     d = fitz.open(); d.new_page().insert_text((72, 72), "ID: " + ID)            # drawn text is still caught
     d.new_page().add_freetext_annot(fitz.Rect(72, 400, 300, 430), "Student " + ID, fontsize=12)
-    r = redact.apply(_save(d), tmp() / "o.pdf", [_text(1, ID)])
-    assert not r.ok and any("page 2" in x for x in r.problems) and ID not in " ".join(r.problems)
+    p = _save(d); out = tmp() / "o.pdf"
+    assert not redact.text_gone(p, [_text(1, ID)])                              # the check reads what the note draws
+    r = redact.apply(p, out, [_text(1, ID)])                                    # and the search finds it: blacked out
+    assert r.ok and not anywhere(out, ID)
 
 
 def test_outline_page_labels_and_page_extras_are_stripped():
@@ -727,6 +729,45 @@ def test_an_annot_without_a_subtype_is_emptied_with_the_page():
     finally:
         fitz.TOOLS.mupdf_display_errors(True)
     assert r.ok and not anywhere(out, ID)
+
+
+# ---- exact repeats on other pages are blacked out; there, a letters-only string must keep its spacing
+
+def test_an_exact_repeat_on_another_page_is_blacked_out_too():
+    p = pdf_pages(["ID: EEE2109300", "Question 1", "Footer ID:EEE2109300", "Name: Tan Ah Kow", "Header: TAN AH KOW."])
+    out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(1, ID), _text(4, "Tan Ah Kow")])            # each named on one page only
+    assert r.ok and r.problems == [] and not anywhere(out, ID)
+    assert "Question 1" in text(out, 2) and "Footer" in text(out, 3) and "Header" in text(out, 5)
+    assert "TAN" not in text(out, 5) and "KOW" not in text(out, 5)               # any case, edge punctuation trimmed
+    assert sorted({x["page"] for x in r.rects}) == [1, 3, 4, 5]
+
+
+def test_a_letters_only_string_on_another_page_needs_the_same_spacing():
+    p = pdf_pages(["Topic: Blue Sky Thinking", "Enrolment Key: BlueSky", "Week 3: Blue\nSky methods"])
+    out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(2, "BlueSky")])                             # the key is a phrase without its space
+    assert r.ok and r.problems == [] and "BlueSky" not in text(out, 2)
+    assert "Blue Sky Thinking" in text(out, 1) and "Sky methods" in text(out, 3)
+    assert redact.text_gone(out, [_text(2, "BlueSky")])
+    assert not redact.text_gone(pdf_pages(["Key: x", "Topic: bluesky"]), [_text(1, "BlueSky")])   # same spacing: found
+
+
+def test_on_its_own_page_or_with_digits_spacing_is_still_ignored():
+    r = redact.apply(pdf_pages(["Enrolment Key: BlueSky   Topic: Blue Sky"]), tmp() / "o.pdf", [_text(1, "BlueSky")])
+    assert not r.ok and any("page 1" in x for x in r.problems) and "BlueSky" not in " ".join(r.problems)
+    assert not redact.text_gone(pdf_pages(["Question 1", "Footer EEE 2109300"]), [_text(1, ID)])
+    assert not redact.text_gone(pdf_pages(["Question 1", "Name: Tan Ah\nKow"]), [_text(1, "Tan Ah Kow")])
+
+
+def test_a_repeat_inside_a_longer_word_or_of_a_short_string_is_left_for_a_person():
+    p = pdf_pages(["Student: Hassan", "Group leader: HASSAN.", "Hassanah binti Omar"]); out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(1, "Hassan")])
+    assert "HASSAN" not in text(out, 2) and "Hassanah binti Omar" in text(out, 3)   # only whole words are blacked out
+    assert not r.ok and any("page 3" in x for x in r.problems) and not any("page 2" in x for x in r.problems)
+    p = pdf_pages(["Seat: 12A", "Table 12A", "Question 1"]); out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(1, "12A")])                                     # too short to look for elsewhere
+    assert "Table 12A" in text(out, 2) and not r.ok and any("page 2" in x for x in r.problems)
 
 
 if __name__ == "__main__":
