@@ -348,7 +348,7 @@ def personal(text: str) -> bool:
 # what a redaction is (the check's `what`, a closed list: ai.CHECK_SCHEMA), and how the PR names it
 WHAT_TEXT = {"name": "姓名 | name", "student_id": "学号 | student ID", "signature": "签名 | signature", "photo": "照片 | photo",
              "qr_code": "二维码 | QR code", "phone": "电话 | phone", "email": "邮箱 | email", "address": "地址 | address",
-             "other": "其他 | other"}
+             "key": "密钥 | key", "other": "其他 | other"}
 ANS_RE = re.compile(r"marking scheme|answer scheme|model answer|suggested answer|solution|answer key|答案|评分标准|参考解答", re.I)
 OFFICE_TEXT_RE = re.compile(r"<(?:w:t|a:t|t)(?:\s[^>]*)?>([^<]*)</(?:w:t|a:t|t)>")
 

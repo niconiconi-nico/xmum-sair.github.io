@@ -1379,7 +1379,8 @@ def test_value_re_matches_values_not_words():
 
 
 KINDS = {"name": "姓名 | name", "student_id": "学号 | student ID", "signature": "签名 | signature", "photo": "照片 | photo",
-         "qr_code": "二维码 | QR code", "phone": "电话 | phone", "email": "邮箱 | email", "address": "地址 | address"}
+         "qr_code": "二维码 | QR code", "phone": "电话 | phone", "email": "邮箱 | email", "address": "地址 | address",
+         "key": "密钥 | key"}
 
 
 def test_redaction_kinds_are_shown_with_fixed_labels_and_anything_else_is_other():   # final review, fold-in 8

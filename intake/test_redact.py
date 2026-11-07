@@ -731,9 +731,9 @@ def test_an_annot_without_a_subtype_is_emptied_with_the_page():
     assert r.ok and not anywhere(out, ID)
 
 
-# ---- exact repeats on other pages are blacked out; a key ("other") there must not be split by spaces to count
+# ---- exact repeats on other pages are blacked out; a one-word key there must not be split by spaces to count
 
-def _key(page, s): return dict(_text(page, s), what="other")
+def _key(page, s): return dict(_text(page, s), what="key")
 
 
 def _raw_page(d, stream: bytes):
@@ -774,7 +774,7 @@ def test_a_name_spaced_differently_on_another_page_still_fails():
     cases.append((pdf_pages(["Student: Muhammad Hassanuddin", "Group: Muhammad Hassanud\ndin"]), "Muhammad Hassanuddin"))
     cases.append((pdf_pages(["Student: Hassan", "Leader: Has san"]), "Hassan"))
     for p, name in cases:
-        for what in ("name", "other") if " " in name else ("name",):          # only a one-word key is read loosely
+        for what in ("name", "other", "key") if " " in name else ("name", "other"):   # a handle can be "other"
             r = redact.apply(p, tmp() / "o.pdf", [dict(_text(1, name), what=what)])
             assert not r.ok and any("page 2" in x for x in r.problems), (name, what, r.problems)
 

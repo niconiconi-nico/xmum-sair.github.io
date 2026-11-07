@@ -108,7 +108,7 @@ def test_scrub_blanks_personal_lecturers_and_weighting():
 
 def test_redaction_kinds_are_a_closed_list_and_free_text_is_filtered_by_both():
     # final review, fold-in 8: `what` is one of the check's kinds; anything else (free text, a value, not a string) is ""
-    labels = ["name", "student_id", "signature", "photo", "qr_code", "phone", "email", "address", "other"]
+    labels = ["name", "student_id", "signature", "photo", "qr_code", "phone", "email", "address", "key", "other"]
     values = ["学号 2109300123", "身份证 990101-14-5678", "电话 012-345 6789", "ID EEE2109300", "mail a@gmail.com",
               "学号 | student ID", "Student_ID", "", 3, None, ["name"], {"x": 1}]
     data = {"check": {"s": {"redactions": [{"page": 1, "kind": "box", "what": w} for w in labels + values],

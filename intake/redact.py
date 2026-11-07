@@ -81,10 +81,11 @@ def _plain(s: str) -> bool:
 
 
 def _loose(r: dict) -> bool:
-    """A redaction the check called "other" (a key, a code: never a name, ID or contact) whose text is one word of
-    Latin letters. On a page other than its own it counts only where it is not split by a space: a key "BlueSky" is
-    not the phrase "blue sky" in the ordinary text of the other pages. Everything else is read through any spacing."""
-    return r.get("what") == "other" and bool(re.fullmatch(r"[A-Za-z]+", r["text"].strip()))
+    """A redaction the check called "key" (an enrolment key, a class password, an access code; never a name, an ID,
+    a username or a contact handle, all read strictly, "other" included) whose text is one word of Latin letters. On
+    a page other than its own it counts only where it is not split by a space: a key "BlueSky" is not the phrase
+    "blue sky" in the ordinary text of the other pages. Everything else is read through any spacing."""
+    return r.get("what") == "key" and bool(re.fullmatch(r"[A-Za-z]+", r["text"].strip()))
 
 
 def _repeats(page, needle: str, words: list) -> list:
@@ -223,7 +224,7 @@ def _plan(doc, redactions):
     hit of the whitespace-normalised string on its page (MuPDF's search ignores case and follows a string over line
     breaks); when there is none, every page word equal (ignoring case and edge punctuation) to one of its words of
     MIN_WORD+ characters, and the target fails when it has no such word or one is not on the page. Then, once per
-    distinct string (ignoring case) and never for one the check called "other" (a key, a code), its exact repeats on
+    distinct string (ignoring case) and never for one the check called "key" or "other", its exact repeats on
     every page that does not name it (_repeats; the fallback's single words are never looked for there). Boxes: see
     _box_rect."""
     import fitz
@@ -246,7 +247,7 @@ def _plan(doc, redactions):
             if not words or not all(found):
                 problems.append(NOT_FOUND.format(p=r["page"]))
         marks += [(r["page"], h) for h in hits]
-        if r.get("what") != "other":
+        if r.get("what") not in ("key", "other"):
             repeat.setdefault(needle.casefold(), (needle, set()))[1].add(r["page"])
     words = {}                                      # page -> get_text("words"), read once
     for needle, named in repeat.values():
