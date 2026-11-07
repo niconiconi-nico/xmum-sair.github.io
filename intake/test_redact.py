@@ -118,14 +118,14 @@ def test_malformed_redactions_fail_closed_and_write_nothing():
         assert not r.ok and r.out is None and not out.exists() and r.problems and "EEE2109300" not in " ".join(r.problems)
 
 
-def test_a_string_repeated_on_another_page_fails_the_whole_document():
-    p = pdf_pages(["ID: EEE2109300", "Question 1", "Footer EEE2109300"]); out = tmp() / "o.pdf"
-    r = redact.apply(p, out, [_text(1, "EEE2109300")])              # the AI named page 1 only
-    assert not r.ok and "EEE2109300" not in text(out, 1) and "EEE2109300" in text(out, 3)
+def test_a_spaced_out_repeat_on_another_page_fails_the_whole_document():
+    p = pdf_pages(["ID: EEE2109300", "Question 1", "Footer EEE 2109300"]); out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(1, "EEE2109300")])              # the AI named page 1 only; search misses page 3
+    assert not r.ok and "EEE2109300" not in text(out, 1) and "EEE 2109300" in text(out, 3)
     assert any("page 3" in x for x in r.problems) and not any("page 1 " in x for x in r.problems)
     assert "EEE2109300" not in " ".join(r.problems)
     assert not redact.text_gone(out, [_text(1, "EEE2109300")])
-    both = redact.apply(p, tmp() / "o2.pdf", [_text(1, "EEE2109300"), _text(3, "EEE2109300")])
+    both = redact.apply(p, tmp() / "o2.pdf", [_text(1, "EEE2109300"), _text(3, "EEE 2109300")])
     assert both.ok and redact.text_gone(both.out, [_text(1, "EEE2109300")])
 
 
@@ -253,7 +253,7 @@ def test_malformed_cached_rects_fail_closed():
 def test_the_original_is_never_written():
     p = pdf_pages(["Name: Tan Ah Kow   ID: EEE2109300", "Footer EEE2109300"]); before = p.read_bytes()
     redact.apply(p, tmp() / "a.pdf", [_text(1, "EEE2109300"), _text(2, "EEE2109300")])
-    redact.apply(p, tmp() / "b.pdf", [_text(1, "EEE2109300")])                           # fails: page 2
+    redact.apply(p, tmp() / "b.pdf", [_text(1, "EEE2109300")])                           # page 2's copy found too
     redact.apply(p, tmp() / "c.pdf", [_text(9, "EEE2109300")])                           # malformed
     r = redact.apply(p, p, [_text(1, "EEE2109300"), _text(2, "EEE2109300")])             # out is the original
     assert not r.ok and r.out is None and p.read_bytes() == before
@@ -434,8 +434,10 @@ def test_a_note_or_an_author_on_another_page_is_emptied():
             assert len(list(o[1].annots())) >= 1                                  # the annotation itself stays
     d = fitz.open(); d.new_page().insert_text((72, 72), "ID: " + ID)            # drawn text is still caught
     d.new_page().add_freetext_annot(fitz.Rect(72, 400, 300, 430), "Student " + ID, fontsize=12)
-    r = redact.apply(_save(d), tmp() / "o.pdf", [_text(1, ID)])
-    assert not r.ok and any("page 2" in x for x in r.problems) and ID not in " ".join(r.problems)
+    p = _save(d); out = tmp() / "o.pdf"
+    assert not redact.text_gone(p, [_text(1, ID)])                              # the check reads what the note draws
+    r = redact.apply(p, out, [_text(1, ID)])                                    # and the search finds it: blacked out
+    assert r.ok and not anywhere(out, ID)
 
 
 def test_outline_page_labels_and_page_extras_are_stripped():
@@ -727,6 +729,95 @@ def test_an_annot_without_a_subtype_is_emptied_with_the_page():
     finally:
         fitz.TOOLS.mupdf_display_errors(True)
     assert r.ok and not anywhere(out, ID)
+
+
+# ---- exact repeats on other pages are blacked out; a one-word key there must not be split by spaces to count
+
+def _key(page, s): return dict(_text(page, s), what="key")
+
+
+def _raw_page(d, stream: bytes):
+    """A page drawn by `stream` (text set in /helv, the font insert_text adds)."""
+    pg = d.new_page(); pg.insert_text((72, 72), "x")
+    d.update_stream(pg.get_contents()[0], stream)
+
+
+def test_an_exact_repeat_on_another_page_is_blacked_out_too():
+    p = pdf_pages(["ID: EEE2109300", "Question 1", "Footer ID:EEE2109300", "Name: Tan Ah Kow", "Header: TAN AH KOW."])
+    out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(1, ID), _text(4, "Tan Ah Kow")])            # each named on one page only
+    assert r.ok and r.problems == [] and not anywhere(out, ID)
+    assert "Question 1" in text(out, 2) and "Footer" in text(out, 3) and "Header" in text(out, 5)
+    assert "TAN" not in text(out, 5) and "KOW" not in text(out, 5)               # any case, edge punctuation trimmed
+    assert sorted({x["page"] for x in r.rects}) == [1, 3, 4, 5]
+
+
+def test_repeats_on_rotated_pages_land_on_the_words():
+    for rot in (90, 180, 270):
+        p = pdf_pages(["ID: EEE2109300 Name: Tan Ah Kow", "Footer EEE2109300 keep this\nSigned Tan Ah Kow keep that"],
+                      rotate=rot)
+        out = tmp() / "o.pdf"
+        r = redact.apply(p, out, [_text(1, ID), _text(1, "Tan Ah Kow")])
+        t = text(out, 2)
+        assert r.ok and ID not in t and "Kow" not in t and "keep this" in t and "keep that" in t, (rot, t)
+
+
+def test_a_name_spaced_differently_on_another_page_still_fails():
+    cases = []
+    d = fitz.open(); d.new_page().insert_text((72, 72), "Student: Hassan Ali")
+    _raw_page(d, b"q BT 1 0 0 1 72 700 Tm /helv 14 Tf 6 Tc (Hassan Ali) Tj ET Q")              # letter-spaced heading
+    cases.append((_save(d), "Hassan Ali"))
+    d = fitz.open(); d.new_page().insert_text((72, 72), "Student: Hassan Ali")
+    _raw_page(d, b"q BT 1 0 0 1 72 700 Tm /helv 11 Tf [(Has) -300 (san Ali)] TJ ET Q")          # a kerning gap
+    cases.append((_save(d), "Hassan Ali"))
+    cases.append((pdf_pages(["Student: Hassan Ali", "Contact: hassanali@student.xmu.edu.my"]), "Hassan Ali"))
+    cases.append((pdf_pages(["Student: Muhammad Hassanuddin", "Group: Muhammad Hassanud\ndin"]), "Muhammad Hassanuddin"))
+    cases.append((pdf_pages(["Student: Hassan", "Leader: Has san"]), "Hassan"))
+    for p, name in cases:
+        for what in ("name", "other", "key") if " " in name else ("name", "other"):   # a handle can be "other"
+            r = redact.apply(p, tmp() / "o.pdf", [dict(_text(1, name), what=what)])
+            assert not r.ok and any("page 2" in x for x in r.problems), (name, what, r.problems)
+
+
+def test_a_key_on_another_page_is_not_an_ordinary_phrase_with_its_space():
+    p = pdf_pages(["Topic: Blue Sky Thinking", "Access code: BlueSky", "Week 3: Blue\nSky methods"])
+    out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_key(2, "BlueSky")])                              # the key is a phrase without its space
+    assert r.ok and r.problems == [] and "BlueSky" not in text(out, 2)
+    assert "Blue Sky Thinking" in text(out, 1) and "Sky methods" in text(out, 3)
+    assert redact.text_gone(out, [_key(2, "BlueSky")])
+    assert not redact.text_gone(out, [_text(2, "BlueSky")])                     # as a name it still counts
+    assert not redact.text_gone(pdf_pages(["Key: x", "Topic: bluesky."]), [_key(1, "BlueSky")])     # not split: found
+    assert not redact.text_gone(pdf_pages(["Key: x", "Topic: Blue-\nSky"]), [_key(1, "BlueSky")])   # hyphen break: found
+
+
+def test_on_its_own_page_or_with_digits_spacing_is_still_ignored():
+    r = redact.apply(pdf_pages(["Access code: BlueSky   Topic: Blue Sky"]), tmp() / "o.pdf", [_key(1, "BlueSky")])
+    assert not r.ok and any("page 1" in x for x in r.problems) and "BlueSky" not in " ".join(r.problems)
+    assert not redact.text_gone(pdf_pages(["Question 1", "Footer EEE 2109300"]), [_key(1, ID)])
+    assert not redact.text_gone(pdf_pages(["Question 1", "Name: Tan Ah\nKow"]), [_text(1, "Tan Ah Kow")])
+
+
+def test_repeats_of_single_words_short_strings_and_keys_are_left_for_a_person():
+    p = pdf_pages(["Student: Siti Aminah", "Leader: SITI AMINAH.", "Siti Aminahwati binti Omar"]); out = tmp() / "o.pdf"
+    r = redact.apply(p, out, [_text(1, "Siti Aminah")])
+    assert "AMINAH" not in text(out, 2) and "Siti Aminahwati binti Omar" in text(out, 3)   # whole words only
+    assert not r.ok and any("page 3" in x for x in r.problems) and not any("page 2" in x for x in r.problems)
+    for reds, pages, kept in (([_text(1, "Crystal")], ["Name: Crystal", "The crystal oscillator"], "crystal oscillator"),
+                              ([_text(1, "12A")], ["Seat: 12A", "Table 12A"], "Table 12A"),
+                              ([_key(1, "Class 4471920")], ["Class 4471920", "Join class 4471920"], "4471920")):
+        out = tmp() / "o.pdf"                                                   # one word, too short, a key: not repeated
+        r = redact.apply(pdf_pages(pages), out, reds)
+        assert kept in text(out, 2) and not r.ok and any("page 2" in x for x in r.problems), reds
+
+
+def test_a_string_named_on_many_pages_is_looked_for_once():
+    pages = [f"Question {i}\nFooter: Tan Ah Kow {ID}" for i in range(1, 31)]
+    reds = [x for i in range(1, 31) for x in (_text(i, "Tan Ah Kow"), _text(i, ID))]
+    r = redact.apply(pdf_pages(pages), tmp() / "o.pdf", reds)                   # every page names both: no repeats
+    assert r.ok and len(r.rects) == 60
+    r = redact.apply(pdf_pages([f"ID: {ID}", f"ID: {ID}", f"Footer {ID}"]), tmp() / "o.pdf", [_text(1, ID), _text(2, ID)])
+    assert r.ok and [x["page"] for x in r.rects] == [1, 2, 3]                   # page 3 blacked out once
 
 
 if __name__ == "__main__":

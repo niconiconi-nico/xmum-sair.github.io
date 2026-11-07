@@ -316,14 +316,15 @@ def test_check_schema_prompt_and_ask():
     assert r["additionalProperties"] is False and set(r["required"]) == set(r["properties"]) == {"page", "kind", "text", "box", "what"}
     assert r["properties"]["kind"]["enum"] == ["text", "box"] and r["properties"]["box"]["items"]["type"] == "integer"
     assert r["properties"]["what"] == {"type": "string", "enum": ["name", "student_id", "signature", "photo", "qr_code",
-                                                                  "phone", "email", "address", "other"]}   # fold-in 8
+                                                                  "phone", "email", "address", "key", "other"]}   # fold-in 8
     assert s["properties"]["lecturers"]["items"]["type"] == "string"
     flat = json.dumps(s)
     assert not any(w in flat for w in ("minItems", "maxItems", "minimum", "maximum"))   # not supported by structured outputs
     p = ai.CHECK_SYSTEM
     for need in ("@xmu.edu.my", "untrusted", "EXACTLY", "0–1000", "student_id", "qr_code", "redactions", "weighting", "lecturers",
                  "one entry for each page an item appears on, repeated headers and footers included, and one box per occurrence",
-                 "names only, no contact details"):
+                 "names only, no contact details",
+                 "never a username, a messaging ID or any contact handle"):
         assert need in p, need
     seen = []
     real = ai.cc.ask

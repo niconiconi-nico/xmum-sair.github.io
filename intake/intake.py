@@ -348,7 +348,7 @@ def personal(text: str) -> bool:
 # what a redaction is (the check's `what`, a closed list: ai.CHECK_SCHEMA), and how the PR names it
 WHAT_TEXT = {"name": "姓名 | name", "student_id": "学号 | student ID", "signature": "签名 | signature", "photo": "照片 | photo",
              "qr_code": "二维码 | QR code", "phone": "电话 | phone", "email": "邮箱 | email", "address": "地址 | address",
-             "other": "其他 | other"}
+             "key": "密钥 | key", "other": "其他 | other"}
 ANS_RE = re.compile(r"marking scheme|answer scheme|model answer|suggested answer|solution|answer key|答案|评分标准|参考解答", re.I)
 OFFICE_TEXT_RE = re.compile(r"<(?:w:t|a:t|t)(?:\s[^>]*)?>([^<]*)</(?:w:t|a:t|t)>")
 
@@ -1322,7 +1322,8 @@ VERIFY_DPI, VERIFY_MIN_DPI = 150, 30
 class Blackout:
     """What blacking out one PDF's redactions gave. `status` is decide()'s `redaction`: "ok", "failed" or
     "verify_unsure". `out` is the redacted copy, kept when the status is not "ok" too (an /approve commits it, spec §7);
-    None when no copy could be made. `pages`: the pages the check named. `verified`: "passed" (the re-check said nothing
+    None when no copy could be made. `pages`: the pages the check named, plus every page blacked out in the copy (where
+    redact.apply found a repeat), so the record shows each changed page. `verified`: "passed" (the re-check said nothing
     personal is left), "failed" (it answered something else), "later" (it could not run: budget, a failed call),
     "not_needed" (text only, on pages without pictures: the text check is enough) or "not_run". `look`: the pages the
     re-check has to see (every box page and every redacted page with a picture)."""
@@ -1396,7 +1397,8 @@ def _redact_one(it, c, raw, cache: dict, out_dir: Path) -> Blackout:
     boxes = {x["page"] for x in c.redactions if x.get("kind") == "box"}
     done = sorted({x["page"] for x in r.rects})
     look = sorted(set(done) & boxes | _picture_pages(r.out, done))
-    return Blackout("ok" if ok else "failed", r.out, pages, "not_needed" if ok and not look else "not_run", look)
+    return Blackout("ok" if ok else "failed", r.out, sorted(set(pages) | set(done)),
+                    "not_needed" if ok and not look else "not_run", look)
 
 
 def _page_png(pdf: Path, page: int) -> bytes | None:

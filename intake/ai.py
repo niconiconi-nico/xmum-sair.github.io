@@ -136,8 +136,10 @@ an item appears on, repeated headers and footers included, and one box per occur
 shortest string that covers it (just the ID or just the name, not the whole line); box = [0, 0, 0, 0].
   - On a scanned page, and for photos, signatures, QR codes or handwriting: kind "box", and box = [x0, y0, x1, y1] in \
 0–1000 page coordinates (origin at the top left, x to the right, y down), generously covering the item; text = "".
-  - what: the kind of item, one of name, student_id, signature, photo, qr_code, phone, email, address, other \
-(other: a Moodle enrolment key, handwriting that names someone, anything else). NEVER the value itself.
+  - what: the kind of item, one of name, student_id, signature, photo, qr_code, phone, email, address, key, other \
+(key: a Moodle or Turnitin enrolment key, a class password or an access code, never a username, a messaging ID or any \
+contact handle; other: a username or messaging ID, handwriting that names someone, anything else). NEVER the value \
+itself.
 - lecturers: the lecturers' names printed on a syllabus or course introduction (public academic staff); names only, no \
 contact details; an empty list for any other file.
 - weighting: the assessment breakdown as printed, such as "Final 50%, Midterm 30%, Coursework 20%"; "" when the file \

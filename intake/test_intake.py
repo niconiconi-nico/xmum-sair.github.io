@@ -1185,6 +1185,18 @@ def test_redaction_pages_outside_the_file_fail_closed_before_redacting():
         assert cache["check"][it.sha]["redactions_ok"] is False and not (w / "redacted" / "item-1.pdf").exists()
 
 
+def test_the_redaction_record_names_pages_where_a_repeat_was_blacked_out():
+    from decide import Check
+    from items import Item
+    w = pathlib.Path(tempfile.mkdtemp()); p = w / "item-1.pdf"; p.write_bytes(_pdf_bytes(1, 2, "ID: EEE2109300", "text"))
+    it = Item(1, "a.pdf", p, "r" * 64, "pdf", 2, True, ["ID: EEE2109300"] * 2, p)
+    c = Check(**dict(CHECK_OK, personal_data="yes",
+                     redactions=[{"page": 1, "kind": "text", "text": "EEE2109300", "what": "student_id"}]))
+    cache = {"check": {it.sha: {"redactions": c.redactions}}}
+    b = intake._redact_one(it, c, cache["check"][it.sha], cache, w / "redacted")
+    assert b.status == "ok" and b.pages == [1, 2]                              # page 2 was changed too: say so
+
+
 NO_COPY = "没有打码副本，`/approve` 会提交原文件 | no redacted copy: `/approve` commits the original"
 PARTIAL = "打码没完成，`/approve` 会提交已打码的部分副本 | redaction incomplete: `/approve` commits the partly redacted copy"
 
@@ -1367,7 +1379,8 @@ def test_value_re_matches_values_not_words():
 
 
 KINDS = {"name": "姓名 | name", "student_id": "学号 | student ID", "signature": "签名 | signature", "photo": "照片 | photo",
-         "qr_code": "二维码 | QR code", "phone": "电话 | phone", "email": "邮箱 | email", "address": "地址 | address"}
+         "qr_code": "二维码 | QR code", "phone": "电话 | phone", "email": "邮箱 | email", "address": "地址 | address",
+         "key": "密钥 | key"}
 
 
 def test_redaction_kinds_are_shown_with_fixed_labels_and_anything_else_is_other():   # final review, fold-in 8
