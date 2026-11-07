@@ -153,7 +153,10 @@ def test_prog_and_qa_pages():
     assert "<!-- COURSE-INDEX -->" not in eee
     n_eee = sum(1 for d in (ROOT / "EEE").glob("*_*") if d.is_dir())
     assert len(set(re.findall(r'href="/XMUM-SAIR-Survival-Guide/EEE/[^"/]+_[^"/]+/"', eee))) == n_eee
-    assert "暂无课程" in (out / "AIT/index.html").read_text(encoding="utf-8")
+    ait = (out / "AIT/index.html").read_text(encoding="utf-8")                      # AIT now has courses of its own
+    n_ait = sum(1 for d in (ROOT / "AIT").glob("*_*") if d.is_dir())
+    assert len(set(re.findall(r'href="/XMUM-SAIR-Survival-Guide/AIT/[^"/]+_[^"/]+/"', ait))) == n_ait
+    assert ("暂无课程" in ait) == (n_ait == 0)
     # the README's instructions for contributors stay on GitHub; the timeline folds away, one link per row
     assert "update_index.py" not in eee and "还没有你的表" not in eee and "文件命名" not in eee
     assert '<details class="timeline">' in eee and "修课时间表" in eee
