@@ -17,6 +17,7 @@ Run `python scripts/update_index.py AIT` from the repo root after adding files; 
 | 代码 / Code | 课程 / Course | 修课学期 / Taken in | 资料学期 / Sessions covered | 资料 / Material |
 |---|---|---|---|---|
 | AIT304 | [Advanced Computer Vision](AIT304_Advanced_Computer_Vision/) | 2024-04 | [2024-04](AIT304_Advanced_Computer_Vision/2024-04) | [README](AIT304_Advanced_Computer_Vision/README.md)<br>[Assignments (1)](AIT304_Advanced_Computer_Vision/2024-04/Assignments) |
+| SWE404 | [Big Data Analytics](SWE404_Big_Data_Analytics/) | 2024-04 | [2024-04](SWE404_Big_Data_Analytics/2024-04) | [README](SWE404_Big_Data_Analytics/README.md)<br>[Assignments (1)](SWE404_Big_Data_Analytics/2024-04/Assignments) |
 <!-- /COURSE-INDEX -->
 
 ## 修课时间表 | Course timeline
@@ -30,3 +31,4 @@ None added yet. Follow the format in [EEE/README.md](../EEE/README.md): one `###
 | 学期 / Session | 代码 / Code | 课程 / Course | 贡献者 / Contributor |
 |---|---|---|---|
 | 2024-04 | [AIT304](AIT304_Advanced_Computer_Vision/) | [Advanced Computer Vision](AIT304_Advanced_Computer_Vision/) | [WeiChenNg](https://github.com/WeiChenNg) |
+| 2024-04 | [SWE404](SWE404_Big_Data_Analytics/) | [Big Data Analytics](SWE404_Big_Data_Analytics/) | [WeiChenNg](https://github.com/WeiChenNg) |
